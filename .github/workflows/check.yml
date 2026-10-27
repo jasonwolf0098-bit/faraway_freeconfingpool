@@ -1,15 +1,16 @@
-name: Auto Config Checker
+name: Auto Config Speed Checker
 
 on:
   schedule:
-    - cron: '0 */12 * * *'  # هر ۱۲ ساعت یک‌بار خودکار اجرا می‌شود
-  workflow_dispatch:        # دکمه برای اجرای دستی در هر لحظه
+    - cron: '0 2 * * *'   # هر روز ساعت 02:00 UTC
+  workflow_dispatch:
 
 jobs:
   test-configs:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
-      contents: write         # اجازه برای کامیت و پوش کردن تغییرات
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -20,32 +21,42 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Download Xray-Knife Engine
+      - name: Install unzip and wget
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip wget curl
+
+      - name: Download xray-knife
         run: |
           curl -s https://api.github.com/repos/lilendian0x00/xray-knife/releases/latest \
           | grep "browser_download_url.*linux-64.zip" \
           | cut -d : -f 2,3 \
-          | tr -d \" \
-          | wget -qi - -O knife.zip || true
-          
-          # اگر دانلود مستقیم ریلیز با مشکل مواجه شد، از فایل باینری عمومی لینوکس استفاده می‌کنیم
-          if [ ! -f knife.zip ]; then
-            wget -O knife.zip https://github.com/lilendian0x00/xray-knife/releases/download/v11.0.0/xray-knife-linux-64.zip
-          fi
-          
+          | tr -d '"' \
+          | wget -qi - -O knife.zip
+
           unzip -o knife.zip
-          chmod +x xray-knife || chmod +x xray-knife-linux-64 || true
+
           if [ -f xray-knife-linux-64 ]; then
             mv xray-knife-linux-64 xray-knife
           fi
 
+          chmod +x xray-knife
+          ./xray-knife --help || true
+
       - name: Run Tester Script
         run: python tester.py
+
+      - name: Show result stats
+        run: |
+          echo "alive count:"
+          wc -l alive.txt || true
+          echo "dead count:"
+          wc -l dead.txt || true
 
       - name: Commit and Push Results
         run: |
           git config --global user.name "GitHub Action Bot"
           git config --global user.email "action@github.com"
           git add alive.txt dead.txt
-          git diff --staged --quiet || git commit -m "update: refresh alive and dead configs [skip ci]"
+          git diff --staged --quiet || git commit -m "update: refresh top speed configs [skip ci]"
           git push
