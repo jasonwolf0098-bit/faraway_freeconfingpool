@@ -1,4 +1,3 @@
-import base64
 import os
 import subprocess
 import urllib.request
@@ -7,55 +6,65 @@ SOURCE_URL = "https://raw.githubusercontent.com/Epodonios/v2ray-configs/refs/hea
 
 ALIVE_FILE = "alive.txt"
 DEAD_FILE = "dead.txt"
+TEMP_ALL = "temp_all.txt"
+TEMP_ALIVE = "temp_alive.txt"
 
+def download_and_clean():
+    print("📥 در حال دانلود کانفیگ‌ها از مبدأ...", flush=True)
+    req = urllib.request.Request(
+        SOURCE_URL, 
+        headers={"User-Agent": "Mozilla/5.0"}
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        content = resp.read().decode("utf-8", errors="ignore")
+    
+    lines = [line.strip() for line in content.splitlines() if line.strip() and not line.startswith("#")]
+    unique_lines = list(dict.fromkeys(lines))
+    print(f"📊 تعداد کل کانفیگ‌های معتبر شناسایی‌شده: {len(unique_lines)}", flush=True)
+    
+    with open(TEMP_ALL, "w", encoding="utf-8") as f:
+        f.write("\n".join(unique_lines))
+    
+    return unique_lines
 
-def download_configs():
-  print("📥 در حال دانلود کانفیگ‌ها از مبدأ...")
-  req = urllib.request.urlopen(SOURCE_URL)
-  content = req.read().decode("utf-8")
-  configs = [
-      line.strip() for line in content.splitlines() if line.strip() and not line.startswith("#")
-  ]
-  # حذف تکراری‌ها
-  return list(dict.fromkeys(configs))
+def run_real_delay_test():
+    print("⚡ در حال اجرای تست Real Delay با هسته کمکی xray-knife...", flush=True)
+    
+    # دستور استاندارد xray-knife برای تست پروتکل‌ها با ۱۵۰ نخ همزمان
+    cmd = [
+        "./xray-knife", "http",
+        "-f", TEMP_ALL,
+        "-t", "150",
+        "-o", TEMP_ALIVE
+    ]
+    
+    subprocess.run(cmd, check=False)
 
+def split_and_save(all_configs):
+    alive_configs = []
+    if os.path.exists(TEMP_ALIVE):
+        with open(TEMP_ALIVE, "r", encoding="utf-8") as f:
+            alive_configs = [line.strip() for line in f.readlines() if line.strip()]
+    
+    alive_set = set(alive_configs)
+    dead_configs = [cfg for cfg in all_configs if cfg not in alive_set]
+    
+    print(f"✅ سالم: {len(alive_configs)} | ❌ ناموفق (Dead): {len(dead_configs)}", flush=True)
+    
+    with open(ALIVE_FILE, "w", encoding="utf-8") as f:
+        f.write("\n".join(alive_configs))
+        
+    with open(DEAD_FILE, "w", encoding="utf-8") as f:
+        f.write("\n".join(dead_configs))
 
-def test_config(config_uri):
-  # تست ساده اتصال TCP یا سوکت برای بررسی زنده بودن کانفیگ
-  # (در گیت‌هاب اکشن پینگ شبکه ایرانسی مقدور نیست، تست دسترسی‌پذیری سرور انجام می‌شود)
-  try:
-    # اینجا از ابزار سبک تست یا کتابخانه پایتون استفاده می‌کنیم
-    # برای شروع، سلامت فرمت و پورت بررسی می‌شود
-    if "://" in config_uri:
-      return True
-  except Exception:
-    pass
-  return False
-
-
-def main():
-  configs = download_configs()
-  print(f"📊 تعداد کل کانفیگ‌ها: {len(configs)}")
-
-  alive = []
-  dead = []
-
-  for cfg in configs:
-    # تست ساده (می‌تونید منطق تست دلخواه رو اینجا توسعه بدید)
-    if test_config(cfg):
-      alive.append(cfg)
-    else:
-      dead.append(cfg)
-
-  print(f"✅ سالم: {len(alive)} | ❌ ناموفق: {len(dead)}")
-
-  # نوشتن در فایل‌ها
-  with open(ALIVE_FILE, "w", encoding="utf-8") as f:
-    f.write("\n".join(alive))
-
-  with open(DEAD_FILE, "w", encoding="utf-8") as f:
-    f.write("\n".join(dead))
-
+    for tmp in [TEMP_ALL, TEMP_ALIVE]:
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 if __name__ == "__main__":
-  main()
+    configs = download_and_clean()
+    if configs:
+        run_real_delay_test()
+        split_and_save(configs)
+    else:
+        print("خطا: هیچ کانفیگی دریافت نشد!")
