@@ -1,0 +1,32 @@
+name: Auto Config Checker
+
+on:
+  schedule:
+    - cron: '0 */12 * * *' # هر ۱۲ ساعت یک‌بار خودکار اجرا می‌شود
+  workflow_dispatch: # دکمه برای اجرای دستی در هر لحظه
+
+jobs:
+  test-configs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # اجازه برای کامیت و پوش کردن تغییرات
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Run Tester Script
+        run: python tester.py
+
+      - name: Commit and Push Results
+        run: |
+          git config --global user.name "GitHub Action Bot"
+          git config --global user.email "action@github.com"
+          git add alive.txt dead.txt
+          git diff --staged --quiet || git commit -m "update: refresh alive and dead configs [skip ci]"
+          git push
