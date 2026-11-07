@@ -2,9 +2,15 @@ import csv
 import os
 import subprocess
 import urllib.request
+import base64
 
-# لینک دقیق و اصلاح‌شدهی فایل خام (بدون بخش اضافی refs/heads)
-SOURCE_URL = "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt"
+# لیست لینک‌های جایگزین رسمی مخزن Epodonios برای جلوگیری از خطای 404
+SOURCE_URLS = [
+    "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt",
+    "https://github.com/Epodonios/v2ray-configs/raw/main/All_Configs_Sub.txt",
+    "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_base64_Sub.txt",
+    "https://raw.githubusercontent.com/Epodonios/v2ray-configs/raw/main/All_Configs_base64_Sub.txt"
+]
 
 ALIVE_FILE = "alive.txt"
 DEAD_FILE = "dead.txt"
@@ -21,13 +27,40 @@ def reset_output_files():
             os.remove(path)
 
 def download_configs():
-    print("📥 در حال دانلود کانفیگ‌ها از سورس اصلی...", flush=True)
-    req = urllib.request.Request(
-        SOURCE_URL,
-        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        content = resp.read().decode("utf-8", errors="ignore")
+    print("📥 در حال تلاش برای دریافت کانفیگ‌ها از مخزن...", flush=True)
+    content = ""
+    success = False
+    
+    for url in SOURCE_URLS:
+        try:
+            print(f"🔗 تست اتصال به: {url}", flush=True)
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                raw_data = resp.read()
+                text = raw_data.decode("utf-8", errors="ignore")
+                
+                # اگر فایل Base64 بود، دیکدش می‌کنیم
+                if "base64" in url or not text.strip().startswith(("vless://", "vmess://", "trojan://")):
+                    try:
+                        decoded_bytes = base64.b64decode(text.strip())
+                        text = decoded_bytes.decode("utf-8", errors="ignore")
+                    except Exception:
+                        pass # اگر متن عادی بود همین‌طور نگه می‌داریم
+                
+                if "://" in text:
+                    content = text
+                    success = True
+                    print(f"✅ موفق به دریافت داده از: {url}", flush=True)
+                    break
+        except Exception as e:
+            print(f"⚠️ خطا در دریافت از {url}: {e}", flush=True)
+            continue
+            
+    if not success or not content:
+        raise RuntimeError("❌ خطا: امکان دریافت داده از هیچ‌کدام از لینک‌های سورس وجود نداشت!")
 
     lines = [
         line.strip()
@@ -35,7 +68,7 @@ def download_configs():
         if line.strip() and not line.strip().startswith("#")
     ]
     unique_lines = list(dict.fromkeys(lines))
-    print(f"📊 تعداد کل کانفیگ‌های خام دریافتی: {len(unique_lines)}", flush=True)
+    print(f"📊 تعداد کل کانفیگ‌های خام یکتا: {len(unique_lines)}", flush=True)
     
     with open(TEMP_ALL, "w", encoding="utf-8") as f:
         f.write("\n".join(unique_lines))
@@ -45,8 +78,8 @@ def filter_allowed_protocols(configs):
     filtered = [c for c in configs if c.lower().startswith(ALLOWED_PREFIXES)]
     ignored = [c for c in configs if not c.lower().startswith(ALLOWED_PREFIXES)]
 
-    print(f"✅ تعداد کانفیگ‌های مجاز (vless/vmess/trojan/hysteria): {len(filtered)}", flush=True)
-    print(f"⛔ تعداد کانفیگ‌های نادیده‌گرفته‌شده (سایر فرمت‌ها): {len(ignored)}", flush=True)
+    print(f"✅ تعداد کانفیگ‌های مجاز پروتکل‌ها: {len(filtered)}", flush=True)
+    print(f"⛔ تعداد کانفیگ‌های نادیده‌گرفته‌شده: {len(ignored)}", flush=True)
 
     with open(TEMP_FILTERED, "w", encoding="utf-8") as f:
         f.write("\n".join(filtered))
@@ -61,7 +94,6 @@ def run_speedtest():
         if os.path.exists("xray-knife"):
             knife_bin = "xray-knife"
 
-    # اجرای تست با پارامترهای پایدار
     cmd = [
         knife_bin, "http",
         "-f", TEMP_FILTERED,
@@ -72,8 +104,8 @@ def run_speedtest():
     ]
 
     res = subprocess.run(cmd, capture_output=True, text=True)
-    print("STDOUT (xray-knife):", res.stdout[-500:] if res.stdout else "none")
-    print("STDERR (xray-knife):", res.stderr[-500:] if res.stderr else "none")
+    print("STDOUT:", res.stdout[-300:] if res.stdout else "none")
+    print("STDERR:", res.stderr[-300:] if res.stderr else "none")
 
 def parse_speed(val):
     if not val:
@@ -117,17 +149,14 @@ def build_final_lists(filtered_configs, ignored_configs):
                         if speed_val > 0:
                             successful.append({"config": cfg.strip(), "speed": speed_val})
         except Exception as e:
-            print(f"خطا در خواندن CSV نتایج: {e}")
+            print(f"خطا در خواندن CSV: {e}")
 
-    # مرتب‌سازی بر اساس بالاترین سرعت دانلود
     successful.sort(key=lambda x: x["speed"], reverse=True)
 
-    # گلچین حداکثر ۴۰۰ تای برتر برای alive.txt
     top_alive_items = successful[:MAX_ALIVE]
     alive_configs = [item["config"] for item in top_alive_items]
     alive_set = set(alive_configs)
 
-    # مابقی کانفیگ‌ها (شکست‌خورده‌ها، سرعت صفر یا خارج از ۴۰۰ تای برتر) + فرمت‌های غیرمجاز می‌روند به dead.txt
     dead_configs = [cfg for cfg in filtered_configs if cfg not in alive_set]
     dead_configs.extend(ignored_configs)
     dead_configs = list(dict.fromkeys(dead_configs))
@@ -139,8 +168,8 @@ def write_outputs(alive, dead):
         f.write("\n".join(alive))
     with open(DEAD_FILE, "w", encoding="utf-8") as f:
         f.write("\n".join(dead))
-    print(f"✅ تعداد نهایی در alive.txt: {len(alive)}", flush=True)
-    print(f"❌ تعداد نهایی در dead.txt: {len(dead)}", flush=True)
+    print(f"✅ alive.txt = {len(alive)}", flush=True)
+    print(f"❌ dead.txt = {len(dead)}", flush=True)
 
 def main():
     reset_output_files()
