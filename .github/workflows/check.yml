@@ -2,7 +2,7 @@ name: Auto Config Speed Checker
 
 on:
   schedule:
-    - cron: '0 2 * * *'   # هر روز ساعت 02:00 UTC
+    - cron: '0 2 * * *'
   workflow_dispatch:
 
 jobs:
@@ -21,25 +21,21 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install unzip and wget
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip wget curl
 
-      - name: Download xray-knife
+      - name: Download and Extract xray-knife
         run: |
-          curl -s https://api.github.com/repos/lilendian0x00/xray-knife/releases/latest \
-          | grep "browser_download_url.*linux-64.zip" \
-          | cut -d : -f 2,3 \
-          | tr -d '"' \
-          | wget -qi - -O knife.zip
-
-          unzip -o knife.zip
-
-          if [ -f xray-knife-linux-64 ]; then
-            mv xray-knife-linux-64 xray-knife
-          fi
-
+          wget -O knife.zip https://github.com/lilendian0x00/xray-knife/releases/download/v11.0.0/xray-knife-linux-64.zip || \
+          curl -L -o knife.zip https://github.com/lilendian0x00/xray-knife/releases/latest/download/xray-knife-linux-64.zip
+          
+          unzip -o knife.zip -d xray_extracted
+          chmod +x xray_extracted/* || true
+          
+          # پیدا کردن خودکار فایل باینری و انتقال به پوشه اصلی
+          find xray_extracted -name "xray-knife*" -type f -exec cp {} ./xray-knife \;
           chmod +x xray-knife
           ./xray-knife --help || true
 
@@ -48,6 +44,7 @@ jobs:
 
       - name: Show result stats
         run: |
+          echo "--- STATS ---"
           echo "alive count:"
           wc -l alive.txt || true
           echo "dead count:"
@@ -58,5 +55,5 @@ jobs:
           git config --global user.name "GitHub Action Bot"
           git config --global user.email "action@github.com"
           git add alive.txt dead.txt
-          git diff --staged --quiet || git commit -m "update: refresh top speed configs [skip ci]"
+          git diff --staged --quiet || git commit -m "update: refresh top 400 speed configs [skip ci]"
           git push
