@@ -3,7 +3,8 @@ import os
 import subprocess
 import urllib.request
 
-SOURCE_URL = "https://raw.githubusercontent.com/Epodonios/v2ray-configs/refs/heads/main/All_Configs_Sub.txt"
+# لینک دقیق و اصلاح‌شدهی فایل خام (بدون بخش اضافی refs/heads)
+SOURCE_URL = "https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/All_Configs_Sub.txt"
 
 ALIVE_FILE = "alive.txt"
 DEAD_FILE = "dead.txt"
@@ -20,10 +21,10 @@ def reset_output_files():
             os.remove(path)
 
 def download_configs():
-    print("📥 در حال دانلود کانفیگ‌ها از سورس...", flush=True)
+    print("📥 در حال دانلود کانفیگ‌ها از سورس اصلی...", flush=True)
     req = urllib.request.Request(
         SOURCE_URL,
-        headers={"User-Agent": "Mozilla/5.0"}
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     )
     with urllib.request.urlopen(req, timeout=60) as resp:
         content = resp.read().decode("utf-8", errors="ignore")
@@ -34,7 +35,7 @@ def download_configs():
         if line.strip() and not line.strip().startswith("#")
     ]
     unique_lines = list(dict.fromkeys(lines))
-    print(f"📊 تعداد کل کانفیگ‌های خام: {len(unique_lines)}", flush=True)
+    print(f"📊 تعداد کل کانفیگ‌های خام دریافتی: {len(unique_lines)}", flush=True)
     
     with open(TEMP_ALL, "w", encoding="utf-8") as f:
         f.write("\n".join(unique_lines))
@@ -44,8 +45,8 @@ def filter_allowed_protocols(configs):
     filtered = [c for c in configs if c.lower().startswith(ALLOWED_PREFIXES)]
     ignored = [c for c in configs if not c.lower().startswith(ALLOWED_PREFIXES)]
 
-    print(f"✅ تعداد کانفیگ‌های مجاز برای تست: {len(filtered)}", flush=True)
-    print(f"⛔ تعداد کانفیگ‌های نادیده‌گرفته‌شده (فرمت غیرمجاز): {len(ignored)}", flush=True)
+    print(f"✅ تعداد کانفیگ‌های مجاز (vless/vmess/trojan/hysteria): {len(filtered)}", flush=True)
+    print(f"⛔ تعداد کانفیگ‌های نادیده‌گرفته‌شده (سایر فرمت‌ها): {len(ignored)}", flush=True)
 
     with open(TEMP_FILTERED, "w", encoding="utf-8") as f:
         f.write("\n".join(filtered))
@@ -53,17 +54,14 @@ def filter_allowed_protocols(configs):
     return filtered, ignored
 
 def run_speedtest():
-    print("🚀 شروع تست واقعی با xray-knife ...", flush=True)
+    print("🚀 شروع تست واقعی سرعت با xray-knife ...", flush=True)
     
-    # پیدا کردن مسیر اجرایی xray-knife
     knife_bin = "./xray-knife"
     if not os.path.exists(knife_bin):
-        if os.path.exists("./Xray-knife-linux/xray-knife"):
-            knife_bin = "./Xray-knife-linux/xray-knife"
-        elif os.path.exists("xray-knife"):
-            knife_bin = "./xray-knife"
+        if os.path.exists("xray-knife"):
+            knife_bin = "xray-knife"
 
-    # دستور استاندارد http با خروجی CSV و تست سرعت (-S)
+    # اجرای تست با پارامترهای پایدار
     cmd = [
         knife_bin, "http",
         "-f", TEMP_FILTERED,
@@ -74,8 +72,8 @@ def run_speedtest():
     ]
 
     res = subprocess.run(cmd, capture_output=True, text=True)
-    print("STDOUT:", res.stdout[-1000:] if res.stdout else "none")
-    print("STDERR:", res.stderr[-1000:] if res.stderr else "none")
+    print("STDOUT (xray-knife):", res.stdout[-500:] if res.stdout else "none")
+    print("STDERR (xray-knife):", res.stderr[-500:] if res.stderr else "none")
 
 def parse_speed(val):
     if not val:
@@ -107,7 +105,6 @@ def build_final_lists(filtered_configs, ignored_configs):
             with open(RESULT_CSV, "r", encoding="utf-8", errors="ignore") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    # پیدا کردن ستون کانفیگ و سرعت در خروجی CSV
                     cfg = ""
                     dl = "0"
                     for k, v in row.items():
@@ -120,17 +117,17 @@ def build_final_lists(filtered_configs, ignored_configs):
                         if speed_val > 0:
                             successful.append({"config": cfg.strip(), "speed": speed_val})
         except Exception as e:
-            print(f"خطا در خواندن CSV: {e}")
+            print(f"خطا در خواندن CSV نتایج: {e}")
 
     # مرتب‌سازی بر اساس بالاترین سرعت دانلود
     successful.sort(key=lambda x: x["speed"], reverse=True)
 
-    # انتخاب حداکثر ۴۰۰ تای برتر
+    # گلچین حداکثر ۴۰۰ تای برتر برای alive.txt
     top_alive_items = successful[:MAX_ALIVE]
     alive_configs = [item["config"] for item in top_alive_items]
     alive_set = set(alive_configs)
 
-    # بقیه کانفیگ‌ها (چه تست ناموفق، چه خارج از ۴۰۰ تای برتر، چه فرمت‌های غیرمجاز) می‌روند به dead.txt
+    # مابقی کانفیگ‌ها (شکست‌خورده‌ها، سرعت صفر یا خارج از ۴۰۰ تای برتر) + فرمت‌های غیرمجاز می‌روند به dead.txt
     dead_configs = [cfg for cfg in filtered_configs if cfg not in alive_set]
     dead_configs.extend(ignored_configs)
     dead_configs = list(dict.fromkeys(dead_configs))
@@ -142,8 +139,8 @@ def write_outputs(alive, dead):
         f.write("\n".join(alive))
     with open(DEAD_FILE, "w", encoding="utf-8") as f:
         f.write("\n".join(dead))
-    print(f"✅ alive.txt = {len(alive)} کانفیگ", flush=True)
-    print(f"❌ dead.txt = {len(dead)} کانفیگ", flush=True)
+    print(f"✅ تعداد نهایی در alive.txt: {len(alive)}", flush=True)
+    print(f"❌ تعداد نهایی در dead.txt: {len(dead)}", flush=True)
 
 def main():
     reset_output_files()
